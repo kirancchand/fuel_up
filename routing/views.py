@@ -48,7 +48,7 @@ fuel_prices_df = pd.read_csv(FUEL_PRICE_FILE)
 # fuel_prices_df = enrich_fuel_data_with_coordinates(FUEL_PRICE_FILE)
 
 def get_route(start, end):
-    api_key = '5b3ce3597851110001cf62481587fd80e7aa453b803bd839206cff9c'
+    api_key = '<api key>'
     url = f'https://api.openrouteservice.org/v2/directions/driving-car?api_key={api_key}&start={start}&end={end}'
     
     # Coordinates for the start and end locations need to be passed in the correct format (longitude, latitude)
