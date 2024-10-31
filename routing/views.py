@@ -20,9 +20,7 @@ fuel_prices_df = pd.read_csv(FUEL_PRICE_FILE)
 def get_route(start, end):
     api_key = '5b3ce3597851110001cf62481587fd80e7aa453b803bd839206cff9c'
     url = f'https://api.openrouteservice.org/v2/directions/driving-car?api_key={api_key}&start={start}&end={end}'
-    
 
-    
     # Send the GET request to the routing API
     response = requests.get(url)
     route_data = response.json()
@@ -37,38 +35,6 @@ def get_route(start, end):
     
     return distance, route_coordinates
 
-
-
-def optimal_data(target_waypoint):
-    print("target_waypoint",target_waypoint)
-    search_radius_miles = 100 
-    lat, lon = target_waypoint
-    search_radius_km = search_radius_miles * 1.60934
-    overpass_url = f"https://overpass-api.de/api/interpreter?data=[out:json];node(around:{search_radius_km*1000},{lat},{lon})['amenity'='fuel'];out;"
-    overpass_response = requests.get(overpass_url)
-    fuel_stations = overpass_response.json().get('elements', [])
-
-    # Step 4: Calculate the nearest fuel station
-    nearest_station = None
-    min_distance = float('inf')
-    for station in fuel_stations:
-        station_coords = (station['lat'], station['lon'])
-        distance_to_station = geodesic(target_waypoint, station_coords).miles
-        if distance_to_station < min_distance:
-            min_distance = distance_to_station
-            nearest_station = station
-
-    # Output the nearest fuel station details
-    if nearest_station:
-        print("Nearest Fuel Station After Desired Distance:")
-        print(f"Name: {nearest_station.get('tags', {}).get('name', 'Unknown')}")
-        print(f"Name: {nearest_station.get('tags', {}).get('addr:city', 'Unknown City')}")
-        print(f"Location: {nearest_station['lat']}, {nearest_station['lon']}")
-        print(f"Distance from Waypoint: {min_distance:.2f} miles")
-        return nearest_station
-    else:
-        print("No fuel stations found within the specified radius.")
-        return None
 def haversine_distance(lat1, lon1, lat2, lon2):
     # Radius of the Earth in kilometers
     R = 6371.0
@@ -141,50 +107,27 @@ def find_coordinate_after_distance(route_coords, start_coord, target_distance_mi
 def get_optimal_stops(route_distance,route_coordinates):
     # Calculate the required number of fuel stops along the route
     num_fuel_stops = int(route_distance // VEHICLE_RANGE)
-    # print("num_fuel_stops",num_fuel_stops)
-    # Sort truckstops by Retail Price in ascending order
-    sorted_fuel_stops = fuel_prices_df.sort_values(by='Retail Price')
-    
     # Initialize list to store details about each fuel stop
     fuel_stops = []
     total_fuel_cost = 0
-
     # Loop to select optimal stops based on fuel price
     initial_route=route_coordinates[0]
     for i in range(num_fuel_stops):
-        
-        stop = sorted_fuel_stops.iloc[i]
-        # print("stop",stop)
-        # print("initial_route",initial_route)
         # Calculate fuel needed for each stop and corresponding cost
         fuel_needed = VEHICLE_RANGE / FUEL_EFFICIENCY  # Gallons required per stop
-        # print("fuel_needed",fuel_needed)
         if i==num_fuel_stops:
-            # print("i",i)
             distance_moved=route_distance%(i-1)            
         else:
             distance_moved=500
-        # print("distance_moved",distance_moved)
         coordinate = find_coordinate_after_distance(route_coordinates,initial_route, distance_moved)
-        # print("coordinate",coordinate)
 
         nearest_city = find_nearest_city(coordinate,'./fuel-prices-for-be-assessment.csv')
-        # print("nearest_city",nearest_city)
-        # print("nearest_cit name",nearest_city['city'])
         city_df = fuel_prices_df[fuel_prices_df['City'] == nearest_city['city']]
         min_price_row = city_df[city_df['Retail Price'] == city_df['Retail Price'].min()]
         min_price=min_price_row['Retail Price'].values[0]
-        print(min_price)
-
-
         initial_route=coordinate
-        # fuelstation=optimal_data(initial_route)
-        # print("fuelstation",fuelstation)
-        # print("min_price_row['Retail Price']",min_price_row['Retail Price'])
         fuel_cost = fuel_needed * min_price
-        # print("fuel_cost",fuel_cost)
         total_fuel_cost += fuel_cost
-        # print("total_fuel_cost",total_fuel_cost)
         # Add fuel stop details to the list
         fuel_stop = {
             "Truckstop Name": min_price_row['Truckstop Name'].values[0],
@@ -192,52 +135,19 @@ def get_optimal_stops(route_distance,route_coordinates):
             "City": min_price_row['City'].values[0],
             "State": min_price_row['State'].values[0],
             "Retail Price": min_price_row['Retail Price'].values[0],
+            "Latitude": min_price_row['Latitude'].values[0],
+            "Longitude": min_price_row['Longitude'].values[0],
             "Fuel Cost": fuel_cost
         }
-        # print(fuel_stop)
         fuel_stops.append(fuel_stop)
 
-    return fuel_stops
-def get_optimal_fuel_stops(route_distance,route_coordinates):
-    # Calculate the required number of fuel stops along the route
-    num_fuel_stops = int(route_distance // VEHICLE_RANGE)
+    return fuel_stops,total_fuel_cost
+
+# def calculate_fuel_cost(distance):
+#     gallons_needed = distance / FUEL_EFFICIENCY
+#     avg_fuel_price = fuel_prices_df['Retail Price'].mean()
     
-    # Sort truckstops by Retail Price in ascending order
-    sorted_fuel_stops = fuel_prices_df.sort_values(by='Retail Price')
-    
-    # Initialize list to store details about each fuel stop
-    fuel_stops = []
-    total_fuel_cost = 0
-
-    # Loop to select optimal stops based on fuel price
-    initial_route=route_coordinates[0]
-    for i in range(num_fuel_stops):
-        
-        stop = sorted_fuel_stops.iloc[i]
-        # Calculate fuel needed for each stop and corresponding cost
-        fuel_needed = VEHICLE_RANGE / FUEL_EFFICIENCY  # Gallons required per stop
-        fuel_cost = fuel_needed * stop['Retail Price']
-        total_fuel_cost += fuel_cost
-
-        # Add fuel stop details to the list
-        fuel_stop = {
-            "Truckstop Name": stop['Truckstop Name'],
-            "Address": stop['Address'],
-            "City": stop['City'],
-            "State": stop['State'],
-            "Retail Price": stop['Retail Price'],
-            "Fuel Cost": fuel_cost,
-            "Nearest Station":nearest_station
-        }
-        fuel_stops.append(fuel_stop)
-
-    return fuel_stops
-
-def calculate_fuel_cost(distance):
-    gallons_needed = distance / FUEL_EFFICIENCY
-    avg_fuel_price = fuel_prices_df['Retail Price'].mean()
-    
-    return gallons_needed * avg_fuel_price
+#     return gallons_needed * avg_fuel_price
 
 def route_view(request):
     start = request.GET.get('start')
@@ -247,87 +157,16 @@ def route_view(request):
         return JsonResponse({'error': 'Start and end locations are required'}, status=400)
 
     distance, route_coordinates = get_route(start, end)
-    optimal_stops_data = get_optimal_stops(distance,route_coordinates)
-    # optimal_stops = get_optimal_fuel_stops(distance,route_coordinates)
-    total_fuel_cost = calculate_fuel_cost(distance)
+    optimal_stops_data,total_fuel_cost = get_optimal_stops(distance,route_coordinates)
+    # total_fuel_cost = calculate_fuel_cost(distance)
 
     
     return JsonResponse({
         'distance': distance,
-        # 'fuel_stops': optimal_stops,
         'fuel_stops': optimal_stops_data,
         'total_fuel_cost': total_fuel_cost,
         'route_coordinates': route_coordinates
     })
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def address_view(request):
-   # Load your CSV file
-    # file_path = 'your_file.csv'  # Replace with your file path
-    df = pd.read_csv(FUEL_PRICE_FILE)
-
-    # Initialize the geocoder
-    # geolocator = Nominatim(user_agent="geoapiExercises")
-    # geocode = RateLimiter(geolocator.geocode, min_delay_seconds=2)
-    geolocator = Nominatim(user_agent="geoapiExercises", domain="overpass-api.de/api/")
-    geocode = RateLimiter(geolocator.geocode, min_delay_seconds=2)
-
-    # Add latitude and longitude columns
-    df['location'] = df['Address'].apply(geocode)  # Replace 'address_column' with your actual column name
-    df['latitude'] = df['location'].apply(lambda loc: loc.latitude if loc else None)
-    df['longitude'] = df['location'].apply(lambda loc: loc.longitude if loc else None)
-
-    # Drop the intermediate 'location' column
-    df = df.drop(columns=['location'])
-
-    # Save the results to a new CSV file
-    output_path = 'output_with_lat_long.csv'
-    df.to_csv(output_path, index=False)
-
-    print("Latitude and Longitude added to the CSV file.")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -370,79 +209,30 @@ def get_unique_city(out_file='unique_cities.csv'):
     sorted_city.to_csv(out_file, index=False)
     return out_file
 def enrich_fuel_data(output_file='enriched_fuel_prices.csv'):
-    # get_unique_city()
     df = pd.read_csv('./unique_cities.csv')
-    # latitudes = []
-    # longitudes = []
     df['Latitude'] = None
     df['Longitude'] = None
     for index, row in df.iterrows():
         try:
             city = f"{row['City']}"
-            print(city)  
-            # coords = geocode_address(city)
-            coords = geocode_addresslocationiq(city)
-            print(coords)        
+            coords = geocode_addresslocationiq(city)      
             if coords:
                 df.loc[df['City'] == city, 'Latitude'] = coords[0]
                 df.loc[df['City'] == city, 'Longitude'] = coords[1]
-                # latitudes.append(coords[0])
-                # longitudes.append(coords[1])
             else:
                 df.loc[df['City'] == city, 'Latitude'] = None
                 df.loc[df['City'] == city, 'Longitude'] = None
-                df.to_csv(output_file, index=False)
-                return output_file
-                # latitudes.append(None)
-                # longitudes.append(None)
             time.sleep(1.5)
         except Exception as e:
             print(f"Error fetching coordinates for city: {city}. Error: {e}")
-    # # df['latitude'] = latitudes
-    # # df['longitude'] = longitudes
-    
+
     # # Save the enriched CSV
     df.to_csv(output_file, index=False)
     return output_file
 
-    # for index, city in unique_cities():
-    #     print(index)
-    #     address = f"{row['Address']}, {row['City']}, {row['State']}"
-    #     coords = geocode_address(city)
-    #     print(coords)
-    #     if coords:
-    #         latitudes.append(coords[0])
-    #         longitudes.append(coords[1])
-    #     else:
-    #         latitudes.append(None)
-    #         longitudes.append(None)
-    # for index, row in df.iterrows():
-    #     print(index)
-    #     address = f"{row['Address']}, {row['City']}, {row['State']}"
-    #     coords = geocode_address(address)
-    #     print(coords)
-    #     if coords:
-    #         latitudes.append(coords[0])
-    #         longitudes.append(coords[1])
-    #     else:
-    #         latitudes.append(None)
-    #         longitudes.append(None)
-    
-    # df['latitude'] = latitudes
-    # df['longitude'] = longitudes
-    
-    # # Save the enriched CSV
-    # df.to_csv(output_file, index=False)
-    # return output_file
-
-def enrich_fuel_data_with_coordinates(request):
-    # Path to the original CSV file    
+def enrich_fuel_data_with_coordinates(request):   
     # Enrich the CSV and save it as a new file
-    # get_unique_city_csv_path=get_unique_city()
-    # enriched_csv_path = enrich_fuel_data(get_unique_city_csv_path)
-    # get_unique_city_path=get_unique_city()
     enriched_csv_path = enrich_fuel_data()
-    
     # Open the enriched file and prepare it for download
     file_path = os.path.join(enriched_csv_path)
     with open(file_path, 'rb') as f:
@@ -463,7 +253,4 @@ def mergecsv(request):
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="fuel-prices-for-be-assessment.csv"'
     
-    # Convert merged DataFrame to CSV and write to response
-    # df_merged.to_csv(path_or_buf=response, index=False)
-
     return response
