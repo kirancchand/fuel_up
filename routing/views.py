@@ -9,6 +9,8 @@ import math
 import requests
 import os
 import time
+import csv 
+
 FUEL_PRICE_FILE = './fuel-prices-for-be-assessment.csv'
 FUEL_EFFICIENCY = 10  
 VEHICLE_RANGE = 500  
@@ -67,6 +69,48 @@ def optimal_data(target_waypoint):
     else:
         print("No fuel stations found within the specified radius.")
         return None
+def haversine_distance(lat1, lon1, lat2, lon2):
+    # Radius of the Earth in kilometers
+    R = 6371.0
+    # Convert degrees to radians
+    lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
+    
+    # Haversine formula
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = math.sin(dlat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    
+    return R * c  # Distance in kilometers
+
+def find_nearest_city(reference_point,csv_file_path):
+    min_distance = float('inf')
+    nearest_city_info = None
+
+    with open(csv_file_path, mode='r') as file:
+        reader = csv.DictReader(file)
+        
+        for row in reader:
+            truck_id = row['OPIS Truckstop ID']
+            city = row['City']
+            lat = float(row['Latitude'])
+            lon = float(row['Longitude'])
+            
+            # Calculate distance from the reference point
+            distance = haversine_distance(reference_point[0], reference_point[1], lat, lon)
+            
+            if distance < min_distance:
+                min_distance = distance
+                nearest_city_info = {
+                    "truckid": truck_id,
+                    "city": city,
+                    "latitude": lat,
+                    "longitude": lon,
+                    "distance_km": min_distance
+                }
+
+    return nearest_city_info
+
 def find_nearest_coordinate_index(route_coords, start_coord):
     min_distance = float('inf')
     nearest_index = 0
@@ -97,7 +141,7 @@ def find_coordinate_after_distance(route_coords, start_coord, target_distance_mi
 def get_optimal_stops(route_distance,route_coordinates):
     # Calculate the required number of fuel stops along the route
     num_fuel_stops = int(route_distance // VEHICLE_RANGE)
-    print("num_fuel_stops",num_fuel_stops)
+    # print("num_fuel_stops",num_fuel_stops)
     # Sort truckstops by Retail Price in ascending order
     sorted_fuel_stops = fuel_prices_df.sort_values(by='Retail Price')
     
@@ -123,21 +167,34 @@ def get_optimal_stops(route_distance,route_coordinates):
         # print("distance_moved",distance_moved)
         coordinate = find_coordinate_after_distance(route_coordinates,initial_route, distance_moved)
         # print("coordinate",coordinate)
-        initial_route=coordinate
-        fuelstation=optimal_data(initial_route)
-        # print("fuelstation",fuelstation)
-        fuel_cost = fuel_needed * stop['Retail Price']
-        total_fuel_cost += fuel_cost
 
+        nearest_city = find_nearest_city(coordinate,'./fuel-prices-for-be-assessment.csv')
+        # print("nearest_city",nearest_city)
+        # print("nearest_cit name",nearest_city['city'])
+        city_df = fuel_prices_df[fuel_prices_df['City'] == nearest_city['city']]
+        min_price_row = city_df[city_df['Retail Price'] == city_df['Retail Price'].min()]
+        min_price=min_price_row['Retail Price'].values[0]
+        print(min_price)
+
+
+        initial_route=coordinate
+        # fuelstation=optimal_data(initial_route)
+        # print("fuelstation",fuelstation)
+        # print("min_price_row['Retail Price']",min_price_row['Retail Price'])
+        fuel_cost = fuel_needed * min_price
+        # print("fuel_cost",fuel_cost)
+        total_fuel_cost += fuel_cost
+        # print("total_fuel_cost",total_fuel_cost)
         # Add fuel stop details to the list
         fuel_stop = {
-            "Truckstop Name": stop['Truckstop Name'],
-            "Address": stop['Address'],
-            "City": stop['City'],
-            "State": stop['State'],
-            "Retail Price": stop['Retail Price'],
+            "Truckstop Name": min_price_row['Truckstop Name'].values[0],
+            "Address": min_price_row['Address'].values[0],
+            "City": min_price_row['City'].values[0],
+            "State": min_price_row['State'].values[0],
+            "Retail Price": min_price_row['Retail Price'].values[0],
             "Fuel Cost": fuel_cost
         }
+        # print(fuel_stop)
         fuel_stops.append(fuel_stop)
 
     return fuel_stops
